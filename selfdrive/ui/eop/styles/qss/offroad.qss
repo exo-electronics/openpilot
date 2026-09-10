@@ -33,3 +33,11 @@ QWidget#onboardRoot      { background-color: #0d1113; }
 QLabel#onboardTitle      { font-size: 40px; font-weight: 700; color: #ffffff; }
 QLabel#onboardBody       { font-size: 22px; color: #b3c0c0; }
 QPushButton#primaryButton { background-color: #2f7566; color: #ffffff; }
+
+/* DVR */
+QWidget#dvrRoot    { background-color: #0d1113; }
+QWidget#dvrSurface { background-color: #000000; border-radius: 8px; }
+QListWidget#dvrList { font-size: 16px; min-width: 420px;
+                      background: #131a1c; border: 1px solid #2a3639; border-radius: 8px; }
+QListWidget#dvrList::item { padding: 10px 12px; }
+QLabel#dvrStatus   { font-size: 15px; color: #7c8b8d; padding: 6px 2px; }

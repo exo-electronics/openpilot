@@ -103,7 +103,9 @@ procs = [
   PythonProcess("soundd", "selfdrive.soundd.soundd", only_onroad),
 
   # UI
-  NativeProcess("ui", "selfdrive/ui", ["./ui"], always_run, watchdog_max_dt=5),
+  # dev/02M runs the Python Qt Widgets UI (selfdrive/ui/eop). The C++ `ui`
+  # binary it replaced no longer exists on this branch.
+  PythonProcess("ui", "selfdrive.ui.eop.main", always_run, watchdog_max_dt=5),
 
   # Map and Navigation
   PythonProcess("mapd", "selfdrive.mapd.mapd", always_run),
