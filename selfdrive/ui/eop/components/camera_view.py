@@ -119,10 +119,65 @@ class CpuCameraView(QWidget):
     p.drawImage(x, y, scaled)
 
 
-class GlCameraView(QOpenGLWidget):
-  """Zero-copy path: dmabuf -> EGLImage -> GL texture.
+VERTEX_SHADER = """
+#version 300 es
+precision mediump float;
+in vec3 vertexPosition;
+in vec2 vertexTexCoord;
+uniform mat4 mvp;
+out vec2 fragTexCoord;
+void main() {
+  fragTexCoord = vertexTexCoord;
+  gl_Position = mvp * vec4(vertexPosition, 1.0);
+}
+"""
 
-  Unverified on hardware. See the module docstring.
+# Zero-copy path: the dmabuf arrives as an external OES image, already NV12,
+# so the sampler does the conversion and the shader only applies openpilot's
+# 1/1.28 gamma. Lifted from the C++/raylib CameraView so the two agree on
+# what a frame should look like.
+FRAGMENT_SHADER_EGL = """
+#version 300 es
+#extension GL_OES_EGL_image_external_essl3 : enable
+precision mediump float;
+in vec2 fragTexCoord;
+uniform samplerExternalOES texture0;
+out vec4 fragColor;
+void main() {
+  vec4 color = texture(texture0, fragTexCoord);
+  fragColor = vec4(pow(color.rgb, vec3(1.0/1.28)), color.a);
+}
+"""
+
+# Full-screen quad in clip space, with an identity MVP: this widget always
+# fills its rect, so there is no camera transform to apply here.
+_QUAD = np.array([
+  # x, y, z,   u, v
+  -1.0, -1.0, 0.0, 0.0, 1.0,
+   1.0, -1.0, 0.0, 1.0, 1.0,
+   1.0,  1.0, 0.0, 1.0, 0.0,
+  -1.0,  1.0, 0.0, 0.0, 0.0,
+], dtype=np.float32)
+_INDICES = np.array([0, 1, 2, 0, 2, 3], dtype=np.uint32)
+_IDENTITY = np.eye(4, dtype=np.float32)
+
+GL_TEXTURE_EXTERNAL_OES = 0x8D65
+
+
+class GlCameraView(QOpenGLWidget):
+  """Zero-copy: VisionIPC dmabuf -> EGLImage -> external OES texture.
+
+  EGLImages are cached per buffer fd. VisionIPC recycles a small ring, so the
+  same handful of fds come back round and round -- recreating the image every
+  frame would leak EGL handles at frame rate, which is the mistake this
+  caching exists to avoid.
+
+  Unverified on hardware, and it carries the open question from plan section
+  12.2: EGLFS supports one fullscreen GL window and documents mixing GL
+  windows with QWidget content as terminating the application. A
+  QOpenGLWidget composited as a child is the supported case, but that is not
+  the same as verified against Rockchip libmali. `create_camera_view()` falls
+  back to the CPU path rather than taking the UI down.
   """
 
   def __init__(self, stream_name: str = "VISION_STREAM_ROAD", parent=None):
@@ -130,19 +185,55 @@ class GlCameraView(QOpenGLWidget):
     self.stream_name = stream_name
     self._client = None
     self._egl_ready = False
+    self._program = None
     self._texture = 0
     self._images: dict[int, object] = {}
     self._frame = None
+    self._failed = False
+
+  # ---- GL lifecycle -----------------------------------------------------
 
   def initializeGL(self) -> None:
+    from openpilot.selfdrive.ui.eop.qt import QtGui
     try:
       from openpilot.system.ui.lib.egl import init_egl
       self._egl_ready = bool(init_egl())
     except Exception:
       self._egl_ready = False
-    if self._egl_ready:
-      fns = self.context().functions()
-      self._texture = fns.glGenTextures(1) if hasattr(fns, "glGenTextures") else 0
+      self._failed = True
+      return
+
+    self._program = QtGui.QOpenGLShaderProgram(self)
+    ok = self._program.addShaderFromSourceCode(QtGui.QOpenGLShader.Vertex, VERTEX_SHADER)
+    ok = ok and self._program.addShaderFromSourceCode(
+      QtGui.QOpenGLShader.Fragment, FRAGMENT_SHADER_EGL)
+    ok = ok and self._program.link()
+    if not ok:
+      # Report rather than draw nothing silently: a shader that fails to
+      # compile against libmali is exactly the failure section 12.2 warns of,
+      # and it should be visible in the log, not just as a black screen.
+      from openpilot.common.swaglog import cloudlog
+      cloudlog.error(f"camera shader failed: {self._program.log()}")
+      self._failed = True
+      return
+
+    fns = self.context().functions()
+    tex = fns.glGenTextures(1)
+    self._texture = tex if isinstance(tex, int) else int(tex[0])
+
+  def _ensure_image(self, buf):
+    """EGLImage for this buffer's fd, created once and reused."""
+    from openpilot.system.ui.lib.egl import create_egl_image
+    fd = int(buf.fd)
+    img = self._images.get(fd)
+    if img is None:
+      img = create_egl_image(buf.width, buf.height, buf.stride, fd, buf.uv_offset)
+      if img is None:
+        return None
+      self._images[fd] = img
+    return img
+
+  # ---- frames -----------------------------------------------------------
 
   def connect(self) -> bool:
     try:
@@ -152,29 +243,70 @@ class GlCameraView(QOpenGLWidget):
       return False
 
   def poll(self) -> None:
+    if self._failed:
+      return
     if self._client is None and not self.connect():
       return
     try:
-      self._frame = self._client.recv(timeout_ms=0)
+      frame = self._client.recv(timeout_ms=0)
     except Exception:
       self._client = None
       return
-    if self._frame is not None:
+    if frame is not None:
+      self._frame = frame
       self.update()
 
+  # ---- draw -------------------------------------------------------------
+
   def paintGL(self) -> None:
-    from openpilot.selfdrive.ui.eop.qt import QtGui as _g
-    painter = _g.QPainter(self)
-    if self._frame is None or not self._egl_ready:
-      painter.fillRect(self.rect(), QColor(0, 0, 0))
-      painter.setPen(QColor(60, 72, 74))
-      painter.drawText(self.rect(), Qt.AlignCenter, "camera: GL path not ready")
+    from openpilot.selfdrive.ui.eop.qt import QtGui
+    fns = self.context().functions()
+    fns.glClearColor(0.0, 0.0, 0.0, 1.0)
+    fns.glClear(0x00004000)  # GL_COLOR_BUFFER_BIT
+
+    if self._failed or self._frame is None or not self._egl_ready:
       return
-    # Binding the EGLImage to self._texture and drawing the textured quad goes
-    # here. Left unwritten rather than guessed: the shader and sampler target
-    # depend on what the platform plugin actually gives us (section 12.2), and
-    # writing it blind would produce code that looks finished and is not.
-    painter.fillRect(self.rect(), QColor(0, 0, 0))
+
+    from openpilot.system.ui.lib.egl import bind_egl_image_to_texture
+    image = self._ensure_image(self._frame)
+    if image is None:
+      return
+
+    bind_egl_image_to_texture(self._texture, image)
+
+    self._program.bind()
+    self._program.setUniformValue(
+      self._program.uniformLocation("mvp"), QtGui.QMatrix4x4())
+    self._program.setUniformValue(self._program.uniformLocation("texture0"), 0)
+
+    stride = 5 * 4  # 5 floats per vertex
+    pos = self._program.attributeLocation("vertexPosition")
+    tex = self._program.attributeLocation("vertexTexCoord")
+    self._program.enableAttributeArray(pos)
+    self._program.enableAttributeArray(tex)
+    self._program.setAttributeArray(pos, _QUAD.tobytes(), 3, stride)
+    self._program.setAttributeArray(tex, _QUAD[3:].tobytes(), 2, stride)
+
+    fns.glDrawArrays(0x0006, 0, 4)  # GL_TRIANGLE_FAN
+
+    self._program.disableAttributeArray(pos)
+    self._program.disableAttributeArray(tex)
+    self._program.release()
+
+  def cleanup(self) -> None:
+    """Release every cached EGLImage. Called on teardown -- these are kernel
+    handles, not garbage-collected memory."""
+    try:
+      from openpilot.system.ui.lib.egl import destroy_egl_image
+      for img in self._images.values():
+        destroy_egl_image(img)
+    except Exception:
+      pass
+    self._images.clear()
+
+  def hideEvent(self, event):
+    super().hideEvent(event)
+    self.cleanup()
 
 
 def create_camera_view(stream_name: str = "VISION_STREAM_ROAD",

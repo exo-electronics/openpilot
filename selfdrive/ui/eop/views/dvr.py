@@ -66,13 +66,11 @@ def scan_segments(root: Path = SEGMENT_ROOT, limit: int = 200) -> list[Segment]:
 
 
 class PlaybackSurface(QWidget):
-  """Where decoded frames go.
+  """Shows one decoded frame, seeked by position.
 
-  Decoding is not wired. On the device this should go through MPP (openpilot
-  publishes `mppStatus`, so the hardware decoder is already a known quantity)
-  rather than a software decoder that would compete with the driving model
-  for CPU. Wiring it is the same shape of problem as the camera path in
-  section 4.3, and belongs after it.
+  Holds the numpy array alive alongside the QImage: QImage wraps the buffer
+  without copying, so letting the array fall out of scope is a use-after-free
+  that shows up as torn frames rather than a crash.
   """
 
   def __init__(self, parent=None):
@@ -80,18 +78,71 @@ class PlaybackSurface(QWidget):
     self.setObjectName("dvrSurface")
     self.setAttribute(Qt.WA_OpaquePaintEvent, True)
     self._segment: Segment | None = None
+    self._decoder = None
+    self._rgb = None
+    self._image = None
+    self._error = ""
 
   def set_segment(self, segment: Segment | None) -> None:
+    self._close()
     self._segment = segment
+    self._error = ""
+    if segment is None:
+      self.update()
+      return
+    try:
+      from openpilot.selfdrive.ui.eop.components.decoder import open_decoder
+      self._decoder = open_decoder(segment.path)
+      self.seek(0.0)
+    except Exception as e:
+      self._error = str(e)
+      self.update()
+
+  def seek(self, seconds: float) -> None:
+    if self._decoder is None:
+      return
+    from openpilot.selfdrive.ui.eop.components.decoder import to_qimage
+    rgb = self._decoder.frame_at(seconds)
+    if rgb is None:
+      self._error = "no frame at this position"
+      self._image = None
+    else:
+      import numpy as np
+      self._rgb = np.ascontiguousarray(rgb)
+      self._image = to_qimage(self._rgb)
+      self._error = ""
     self.update()
+
+  def _close(self) -> None:
+    if self._decoder is not None:
+      try:
+        self._decoder.close()
+      except Exception:
+        pass
+    self._decoder = None
+    self._image = None
+    self._rgb = None
+
+  def hideEvent(self, event):
+    super().hideEvent(event)
+    self._close()
 
   def paintEvent(self, event):
     from openpilot.selfdrive.ui.eop.qt import QColor, QPainter
     p = QPainter(self)
     p.fillRect(self.rect(), QColor(0, 0, 0))
+    if self._image is not None:
+      scaled = self._image.scaled(self.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
+      p.drawImage((self.width() - scaled.width()) // 2,
+                  (self.height() - scaled.height()) // 2, scaled)
+      return
     p.setPen(QColor(60, 72, 74))
-    text = ("no segment selected" if self._segment is None
-            else f"{self._segment.path.name}\ndecode not wired (MPP)")
+    if self._segment is None:
+      text = "no segment selected"
+    elif self._error:
+      text = f"{self._segment.path.name}\n{self._error}"
+    else:
+      text = self._segment.path.name
     p.drawText(self.rect(), Qt.AlignCenter, text)
 
 
