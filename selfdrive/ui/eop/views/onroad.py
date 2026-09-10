@@ -14,6 +14,7 @@ any of this is built on top of it.
 from __future__ import annotations
 
 from openpilot.selfdrive.ui.eop.components.blind_spot import BlindSpotBands
+from openpilot.selfdrive.ui.eop.components.camera_overlay import CameraOverlayStack
 from openpilot.selfdrive.ui.eop.qt import Qt, QColor, QPainter, QWidget
 from openpilot.selfdrive.ui.eop.state import Snapshot
 
@@ -50,16 +51,21 @@ class OnroadView(QWidget):
 
     self.camera = CameraSurface(self)
     self.bands = BlindSpotBands(self)
-    # Bands sit above the camera and below any future chrome. They take no
-    # input either way; this is purely about what stays legible.
+    # A side or rear overlay covers the whole view, so it sits above the
+    # bands -- which is exactly why the blind-spot warning has to move onto
+    # the overlay's own border while one is up (plan section 5.7).
+    self.overlays = CameraOverlayStack(self)
     self.bands.raise_()
+    self.overlays.raise_()
 
   def set_snapshot(self, snap: Snapshot) -> None:
     self.bands.set_severity(snap.blind_spot)
+    self.overlays.set_snapshot(snap)
 
   def _layout(self) -> None:
     self.camera.setGeometry(self.rect())
     self.bands.setGeometry(self.rect())
+    self.overlays.setGeometry(self.rect())
 
   def resizeEvent(self, event):
     super().resizeEvent(event)

@@ -1,0 +1,21 @@
+/* Offroad settings. Row heights and type sizes assume a touch target reached
+   at arm's length in a parked car, not a desktop pointer. */
+
+QWidget#offroadRoot { background-color: #0d1113; }
+
+QLabel#controlTitle { font-size: 22px; color: #e6ebea; }
+QLabel#controlDesc  { font-size: 16px; color: #7c8b8d; }
+
+QScrollArea { border: 0; background: transparent; }
+
+QCheckBox::indicator { width: 56px; height: 32px; }
+
+QSpinBox, QDoubleSpinBox {
+  font-size: 20px;
+  min-width: 160px;
+  min-height: 48px;
+  background-color: #1d2629;
+  border: 1px solid #2a3639;
+  border-radius: 6px;
+  padding: 4px 10px;
+}

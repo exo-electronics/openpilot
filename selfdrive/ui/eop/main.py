@@ -23,6 +23,7 @@ from openpilot.selfdrive.ui.eop.styles.style_manager import (
   StyleManager,
   Theme,
 )
+from openpilot.selfdrive.ui.eop.views.offroad import OffroadView
 from openpilot.selfdrive.ui.eop.views.onroad import PANEL_H, PANEL_W, OnroadView
 
 
@@ -59,9 +60,16 @@ def main(argv: list[str] | None = None) -> int:
   styles = StyleManager(Theme.DARK)
   styles.apply(app, Component.ONROAD)
 
+  from openpilot.selfdrive.ui.eop.qt import QtWidgets
+  window = QtWidgets.QStackedWidget()
+  window.setWindowTitle("ExoPilot 02M")
   view = OnroadView()
-  view.resize(PANEL_W, PANEL_H)
-  view.show()
+  offroad = OffroadView() if not args.demo else None
+  window.addWidget(view)
+  if offroad is not None:
+    window.addWidget(offroad)
+  window.resize(PANEL_W, PANEL_H)
+  window.show()
 
   if args.demo:
     from openpilot.selfdrive.ui.eop.qt import QTimer
@@ -72,8 +80,13 @@ def main(argv: list[str] | None = None) -> int:
     timer.start()
     view.set_snapshot(next(source))
   else:
-    state = UIState(parent=view)
+    state = UIState(parent=window)
     state.updated.connect(view.set_snapshot)
+    # Settings are only reachable while parked -- pulling the driving view off
+    # screen at speed is a safety defect, not a UX preference (section 5.6).
+    if offroad is not None:
+      state.offroad_transition.connect(
+        lambda is_offroad: window.setCurrentIndex(1 if is_offroad else 0))
     state.start()
 
   return run_app(app)
