@@ -1,40 +1,64 @@
 """Qt binding shim.
 
-The target is **Ubuntu 22.04 on RK3576**, where the binding to use is
-**PySide2** (`python3-pyside2`, 5.15.2, in jammy universe and built for
-arm64). PySide6 is not in jammy at all and has no official aarch64 wheels, so
-using it there means building Shiboken and PySide from source on the device or
-in a cross-toolchain -- hours of build for no gain, since the device already
-runs Qt 5.15 for the existing C++ UI. See docs/eop10/EOP10_PORT_PLAN.md
-section 12.1.
+The target is **Ubuntu 22.04 on RK3576**, i.e. Qt 5.15 — the same Qt the
+existing C++ UI already runs on that device. Three bindings can supply it and
+all three are packaged for jammy on arm64, so the choice is not about
+availability:
 
-Development machines are frequently newer than the target and carry PySide6
-instead, so this module resolves whichever is present rather than pinning one.
-It is deliberately about thirty lines and not a general abstraction layer --
-QtPy exists for that. It normalises only the differences this UI actually
-touches:
+- **PyQt5** (`python3-pyqt5`) — the default here. Nagasware's 48,545 LOC of UI
+  is written against it, so the port starts with zero conversion, and this is
+  a research project where the GPL is not yet a constraint.
+- **PySide2** (`python3-pyside2`) — LGPLv3. The one to move to **before
+  anything ships**, because PyQt5 is GPLv3 or a paid Riverbank licence and
+  openpilot is MIT; distributing a PyQt5 UI would force GPL on the combined
+  work. See docs/eop10/EOP10_PORT_PLAN.md section 12.1.
+- **PySide6** — Qt6, not in jammy, no aarch64 wheels. Dev machines newer than
+  the target tend to have it, so it is accepted as a last resort.
 
-- `QOpenGLWidget` moved from `QtWidgets` (Qt5) to `QtOpenGLWidgets` (Qt6).
-- `exec_()` is the only spelling in PySide2; PySide6 prefers `exec()`.
+Deferring the licence decision is cheap *only if the code does not accumulate
+binding-specific spellings in the meantime*, which is what this module is for.
+Write `Signal`, never `pyqtSignal`; take `QOpenGLWidget` from here, not from a
+binding module; use unscoped enum access (`Qt.WA_TranslucentBackground`),
+which is native in Qt5 and accepted by PySide6's forgiveness mode. Held to
+that, switching to PySide2 later is an edit to this file rather than a pass
+over the whole UI.
 
-Everything else is written to the intersection on purpose. Unscoped enum
-access (`Qt.WA_TranslucentBackground` rather than
-`Qt.WidgetAttribute.WA_TranslucentBackground`) is native in PySide2 and
-accepted by PySide6's forgiveness mode, so it works on both; `Signal` and
-`Slot` are spelled the same in either. Keeping to that intersection is what
-makes the shim small enough to be worth having.
+`EOP_QT_BINDING=pyqt5|pyside2|pyside6` forces a specific binding, for testing
+that the code really is neutral.
 """
 
 from __future__ import annotations
 
-try:
-  from PySide2 import QtCore, QtGui, QtWidgets  # type: ignore
-  from PySide2.QtWidgets import QOpenGLWidget  # type: ignore
-  BINDING = "PySide2"
-except ImportError:  # pragma: no cover - exercised on dev machines only
-  from PySide6 import QtCore, QtGui, QtWidgets  # type: ignore
-  from PySide6.QtOpenGLWidgets import QOpenGLWidget  # type: ignore
-  BINDING = "PySide6"
+import os
+
+_FORCED = os.environ.get("EOP_QT_BINDING", "").strip().lower()
+_ORDER = [_FORCED] if _FORCED else ["pyqt5", "pyside2", "pyside6"]
+
+BINDING = ""
+_errors: list[str] = []
+
+for _name in _ORDER:
+  try:
+    if _name == "pyqt5":
+      from PyQt5 import QtCore, QtGui, QtWidgets  # type: ignore
+      from PyQt5.QtWidgets import QOpenGLWidget  # type: ignore
+      QtCore.Signal = QtCore.pyqtSignal  # type: ignore[attr-defined]
+      QtCore.Slot = QtCore.pyqtSlot  # type: ignore[attr-defined]
+    elif _name == "pyside2":
+      from PySide2 import QtCore, QtGui, QtWidgets  # type: ignore
+      from PySide2.QtWidgets import QOpenGLWidget  # type: ignore
+    elif _name == "pyside6":
+      from PySide6 import QtCore, QtGui, QtWidgets  # type: ignore
+      from PySide6.QtOpenGLWidgets import QOpenGLWidget  # type: ignore
+    else:
+      raise ImportError(f"unknown binding {_name!r}")
+    BINDING = _name
+    break
+  except ImportError as e:
+    _errors.append(f"{_name}: {e}")
+
+if not BINDING:
+  raise ImportError("no Qt binding available -- tried " + "; ".join(_errors))
 
 Qt = QtCore.Qt
 Signal = QtCore.Signal
@@ -53,6 +77,6 @@ __all__ = [
 ]
 
 
-def run_app(app: QtWidgets.QApplication) -> int:
-  """Enter the event loop under either binding."""
+def run_app(app) -> int:
+  """Enter the event loop. Qt5 bindings spell it exec_(); PySide6 exec()."""
   return app.exec_() if hasattr(app, "exec_") else app.exec()
