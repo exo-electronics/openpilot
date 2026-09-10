@@ -76,6 +76,7 @@ class Snapshot:
   alert_text1: str = ""
   alert_text2: str = ""
   alert_severity: str = "none"
+  warnings: tuple[str, ...] = ()      # Warning.key values, see components/warnings.py
 
   @property
   def hazards(self) -> bool:
@@ -169,6 +170,24 @@ class UIState(QObject):
       mem_pct = float(getattr(ds, "memoryUsagePercent", 0.0))
       free_gb = float(getattr(ds, "freeSpacePercent", 0.0))
 
+    warnings: list[str] = []
+    if sm.valid("carState"):
+      cs = sm["carState"]
+      if getattr(cs, "doorOpen", False):
+        warnings.append("door_open")
+      if getattr(cs, "seatbeltUnlatched", False) is not False:
+        warnings.append("seatbelt")
+      if getattr(cs, "parkingBrake", False):
+        warnings.append("parking_brake")
+      if getattr(cs, "steerFaultPermanent", False):
+        warnings.append("steering_fault")
+      if getattr(cs, "canError", False):
+        warnings.append("can_fault")
+    if sm.valid("liveCalibration"):
+      cal = str(getattr(sm["liveCalibration"], "calStatus", "") or "")
+      if cal and cal != "calibrated":
+        warnings.append("calibration_required")
+
     alert1 = alert2 = ""
     severity = "none"
     if sm.valid("selfdriveState"):
@@ -208,4 +227,5 @@ class UIState(QObject):
       alert_text1=alert1,
       alert_text2=alert2,
       alert_severity=severity,
+      warnings=tuple(warnings),
     )

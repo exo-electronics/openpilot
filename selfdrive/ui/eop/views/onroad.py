@@ -25,6 +25,11 @@ from openpilot.selfdrive.ui.eop.components.chrome import (
   TopBar,
 )
 from openpilot.selfdrive.ui.eop.components.panels import PanelData, PanelHost
+from openpilot.selfdrive.ui.eop.components.warnings import (
+  AdasWarning,
+  WarningOverlay,
+  blocks_engagement,
+)
 from openpilot.selfdrive.ui.eop.qt import Qt, QColor, QPainter, QWidget
 from openpilot.selfdrive.ui.eop.state import Snapshot
 
@@ -63,11 +68,14 @@ class OnroadView(QWidget):
     self.top = TopBar(self)
     self.bottom = BottomBar(self)
     self.overlays = CameraOverlayStack(self)
+    self.warnings = WarningOverlay(self)
     self.alert = AlertOverlay(self)
     self.alert.hide()
 
+    # Alert last: a full-screen camera must never bury one, and a warning
+    # card must never bury an alert.
     for w in (self.bands, self.panels, self.top, self.bottom,
-              self.overlays, self.alert):
+              self.overlays, self.warnings, self.alert):
       w.raise_()
 
   # ---- state ------------------------------------------------------------
@@ -85,11 +93,14 @@ class OnroadView(QWidget):
                               if snap.cruise_kph > 0 else "cruise --")
     self.bottom.update()
 
+    active = [w for w in (AdasWarning.from_key(k) for k in snap.warnings) if w]
+    self.warnings.set_active(active)
+
     critical = snap.alert_severity == "critical"
     self.alert.set_alert(snap.alert_text1, snap.alert_text2, snap.alert_severity)
     # A safety warning freezes panel cycling: a swipe should not be able to
     # page away from what the car is trying to say (section 5.6).
-    self.panels.set_blocked(critical)
+    self.panels.set_blocked(critical or blocks_engagement(active))
 
     self.panels.set_data(PanelData({
       "v_ego": snap.v_ego,
@@ -128,6 +139,7 @@ class OnroadView(QWidget):
     self.bottom.setGeometry(0, h - BAR_H, w, BAR_H)
     self.panels.setGeometry(body)
     self.alert.setGeometry(0, (h - 160) // 2, w, 160)
+    self.warnings.setGeometry((w - 700) // 2, (h - 110) // 2, 700, 110)
 
   def resizeEvent(self, event):
     super().resizeEvent(event)
