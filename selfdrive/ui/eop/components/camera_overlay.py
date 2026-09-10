@@ -3,7 +3,8 @@
 Behaviour is settled (plan section 5.7, implemented in C++ on dev/01M):
 
   single blinker  -> that side's camera, full screen
-  both blinkers   -> nothing; hazards are not an intent to move sideways
+  both blinkers   -> nothing
+  hazards are not an intent to move sideways
   reverse         -> rear camera, outranking any blinker
 
 A full-screen image carries no chrome saying which camera it is, so a bar

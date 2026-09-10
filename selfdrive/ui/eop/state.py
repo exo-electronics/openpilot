@@ -6,7 +6,8 @@ and the integration surface small enough to reason about (plan section 5.2).
 
 One SubMaster, shared -- not one per bridge. That bug has already been paid
 for once in this codebase, in ncp_session.py, where multiple PubMaster
-instances for the same service crashed msgq on boot; the subscribe side has
+instances for the same service crashed msgq on boot
+the subscribe side has
 the same shape, and openpilot's own selfdrive/ui/ui_state.py has always used a
 single shared SubMaster.
 
@@ -63,6 +64,18 @@ class Snapshot:
   right_blinker: bool = False
   in_reverse: bool = False
   blind_spot: BlindSpotSeverity = BlindSpotSeverity()
+  steering_angle: float = 0.0
+  cruise_kph: float = 0.0
+  gear: str = "unknown"
+  lead_valid: bool = False
+  lead_d: float = 0.0
+  bearing: float = 0.0
+  cpu_temp: float = 0.0
+  mem_pct: float = 0.0
+  free_gb: float = 0.0
+  alert_text1: str = ""
+  alert_text2: str = ""
+  alert_severity: str = "none"
 
   @property
   def hazards(self) -> bool:
@@ -125,17 +138,46 @@ class UIState(QObject):
       if ss.enabled:
         status = UIStatus.OVERRIDE if getattr(ss, "overrideLateral", False) else UIStatus.ENGAGED
 
-    v_ego = 0.0
+    v_ego = steering_angle = cruise_kph = 0.0
+    gear = "unknown"
     left_blinker = right_blinker = in_reverse = False
     car_left = car_right = False
     if sm.valid("carState"):
       cs = sm["carState"]
       v_ego = float(cs.vEgo)
+      steering_angle = float(getattr(cs, "steeringAngleDeg", 0.0))
+      cruise_kph = float(getattr(getattr(cs, "cruiseState", None), "speed", 0.0)) * 3.6
+      gear = str(cs.gearShifter)
       left_blinker = bool(cs.leftBlinker)
       right_blinker = bool(cs.rightBlinker)
-      in_reverse = str(cs.gearShifter) == "reverse"
+      in_reverse = gear == "reverse"
       car_left = bool(cs.leftBlindspot)
       car_right = bool(cs.rightBlindspot)
+
+    lead_valid, lead_d = False, 0.0
+    if sm.valid("radarState"):
+      lead = getattr(sm["radarState"], "leadOne", None)
+      if lead is not None:
+        lead_valid = bool(getattr(lead, "status", False))
+        lead_d = float(getattr(lead, "dRel", 0.0))
+
+    cpu_temp = mem_pct = free_gb = 0.0
+    if sm.valid("deviceState"):
+      ds = sm["deviceState"]
+      temps = list(getattr(ds, "cpuTempC", []) or [])
+      cpu_temp = max(temps) if temps else 0.0
+      mem_pct = float(getattr(ds, "memoryUsagePercent", 0.0))
+      free_gb = float(getattr(ds, "freeSpacePercent", 0.0))
+
+    alert1 = alert2 = ""
+    severity = "none"
+    if sm.valid("selfdriveState"):
+      ss = sm["selfdriveState"]
+      alert1 = str(getattr(ss, "alertText1", "") or "")
+      alert2 = str(getattr(ss, "alertText2", "") or "")
+      raw = str(getattr(ss, "alertStatus", "") or "")
+      if alert1:
+        severity = {"critical": "critical", "userPrompt": "warning"}.get(raw, "normal")
 
     ctrl_left = ctrl_right = 0
     if sm.valid("controlsState"):
@@ -155,4 +197,15 @@ class UIState(QObject):
       right_blinker=right_blinker,
       in_reverse=in_reverse,
       blind_spot=fuse_blind_spot(ctrl_left, ctrl_right, car_left, car_right),
+      steering_angle=steering_angle,
+      cruise_kph=cruise_kph,
+      gear=gear,
+      lead_valid=lead_valid,
+      lead_d=lead_d,
+      cpu_temp=cpu_temp,
+      mem_pct=mem_pct,
+      free_gb=free_gb,
+      alert_text1=alert1,
+      alert_text2=alert2,
+      alert_severity=severity,
     )

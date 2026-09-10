@@ -10,15 +10,18 @@ availability:
   a research project where the GPL is not yet a constraint.
 - **PySide2** (`python3-pyside2`) — LGPLv3. The one to move to **before
   anything ships**, because PyQt5 is GPLv3 or a paid Riverbank licence and
-  openpilot is MIT; distributing a PyQt5 UI would force GPL on the combined
+  openpilot is MIT
+  distributing a PyQt5 UI would force GPL on the combined
   work. See docs/eop10/EOP10_PORT_PLAN.md section 12.1.
 - **PySide6** — Qt6, not in jammy, no aarch64 wheels. Dev machines newer than
   the target tend to have it, so it is accepted as a last resort.
 
 Deferring the licence decision is cheap *only if the code does not accumulate
 binding-specific spellings in the meantime*, which is what this module is for.
-Write `Signal`, never `pyqtSignal`; take `QOpenGLWidget` from here, not from a
-binding module; use unscoped enum access (`Qt.WA_TranslucentBackground`),
+Write `Signal`, never `pyqtSignal`
+take `QOpenGLWidget` from here, not from a
+binding module
+use unscoped enum access (`Qt.WA_TranslucentBackground`),
 which is native in Qt5 and accepted by PySide6's forgiveness mode. Held to
 that, switching to PySide2 later is an edit to this file rather than a pass
 over the whole UI.

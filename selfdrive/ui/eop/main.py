@@ -63,7 +63,7 @@ def main(argv: list[str] | None = None) -> int:
   from openpilot.selfdrive.ui.eop.qt import QtWidgets
   window = QtWidgets.QStackedWidget()
   window.setWindowTitle("ExoPilot 02M")
-  view = OnroadView()
+  view = OnroadView(live_camera=not args.demo)
   offroad = OffroadView() if not args.demo else None
   window.addWidget(view)
   if offroad is not None:
@@ -82,6 +82,7 @@ def main(argv: list[str] | None = None) -> int:
   else:
     state = UIState(parent=window)
     state.updated.connect(view.set_snapshot)
+    state.updated.connect(lambda _s: view.poll_camera())
     # Settings are only reachable while parked -- pulling the driving view off
     # screen at speed is a safety defect, not a UX preference (section 5.6).
     if offroad is not None:

@@ -68,10 +68,12 @@ def severity_color(severity: int) -> str:
 class BlindSpotBands(QWidget):
   """Left and right edge bands over the road view.
 
-  Warning severity blinks; caution is solid. On dev/01M the warning level
+  Warning severity blinks
+  caution is solid. On dev/01M the warning level
   breathes on a raised cosine instead, which is nicer, but it needs a
   per-frame alpha this widget does not drive -- BorderOverlay's shared clock
-  is a toggle. Blink is the honest equivalent here; upgrading it means giving
+  is a toggle. Blink is the honest equivalent here
+  upgrading it means giving
   BorderOverlay an animated alpha, which is worth doing only if it looks
   worse on real hardware than it reads on paper.
   """

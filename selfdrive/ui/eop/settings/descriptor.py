@@ -14,7 +14,8 @@ This is data, not code: `BaseOffroadPage` renders its sections from it, and
 `common/params_keys.h` is either present here or explicitly excluded with a
 reason. That test is the completeness gate for settings.
 
-Regenerate after changing eop_panel.cc; the coverage test will tell you if it
+Regenerate after changing eop_panel.cc
+the coverage test will tell you if it
 drifted.
 """
 
