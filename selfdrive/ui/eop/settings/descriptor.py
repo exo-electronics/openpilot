@@ -1,3 +1,7 @@
+# ruff: noqa: E501
+# Generated data. Each Control is one line on purpose: the generator's first
+# attempt wrapped them with textwrap and split string literals mid-quote, so
+# line length is exempted here rather than reintroducing that.
 """Declarative settings descriptor.
 
 Generated from `selfdrive/ui/qt/offroad/eop_panel.cc` rather than transcribed

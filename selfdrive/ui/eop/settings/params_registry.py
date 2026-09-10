@@ -23,7 +23,7 @@ _HEADER = Path(__file__).resolve().parents[4] / "common" / "params_keys.h"
 
 _ENTRY = re.compile(
   r'\{\s*"(?P<key>[A-Za-z0-9_]+)"\s*,\s*\{(?P<flags>[^,}]+),\s*(?P<type>[A-Z]+)\s*'
-  r'(?:,\s*"(?P<default>[^"]*)")?\s*\}\s*\}'
+  + r'(?:,\s*"(?P<default>[^"]*)")?\s*\}\s*\}'
 )
 
 

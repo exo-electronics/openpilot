@@ -39,7 +39,7 @@ class TestCoverage:
     missing = eop_keys() - declared_keys() - excluded_keys()
     assert not missing, (
       f"{len(missing)} EOP params are neither exposed nor excluded. "
-      "Add them to descriptor.py, or to exclusions.py with a reason:\n  "
+      + "Add them to descriptor.py, or to exclusions.py with a reason:\n  "
       + "\n  ".join(sorted(missing))
     )
 
@@ -57,7 +57,7 @@ class TestCoverage:
     # panel so it stays in view rather than quietly becoming permanent.
     total = len(eop_keys())
     print(f"\nsettings coverage: {len(declared_keys())}/{total} exposed, "
-          f"{len(TRIAGED)} triaged, {len(UNTRIAGED)} untriaged")
+          + f"{len(TRIAGED)} triaged, {len(UNTRIAGED)} untriaged")
     assert len(UNTRIAGED) <= 219, "untriaged set grew -- triage before adding"
 
 
