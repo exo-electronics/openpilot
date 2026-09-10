@@ -169,13 +169,13 @@ features. That is also why this is a branch rather than a repo (§1).
 |---|---|---|---|
 | Design reuse from Nagasware/VisionPilot | **direct** — same toolkit, QSS carries over | none — immediate-mode redraw, no stylesheets | none — C++ rewrite |
 | LOC to write from scratch | ~3–5k (bridges + camera widget) | ~20k+ (re-implement 84k LOC of design) | ~14k C++ |
-| Build-time deps | PySide6 (distro pkg or source build — §12.3) | `pyray` wheel | Qt5 dev headers, `lrelease`, SCons Qt env |
-| Runtime deps | libQt6{Core,Gui,Widgets} | libGL only | libQt5{Core,Gui,Widgets} |
-| Licence | **LGPLv3** (PySide6) / GPLv3 (PyQt5) | zlib/libpng — permissive | LGPLv3 (Qt5 libs) |
+| Build-time deps | `python3-pyside2` (jammy, arm64 — §12.3) | `pyray` wheel | Qt5 dev headers, `lrelease`, SCons Qt env |
+| Runtime deps | libQt5{Core,Gui,Widgets} — already on the device | libGL only | libQt5{Core,Gui,Widgets} |
+| Licence | **LGPLv3** (PySide2) / GPLv3 (PyQt5) | zlib/libpng — permissive | LGPLv3 (Qt5 libs) |
 | Camera zero-copy | needs new `QOpenGLWidget` + EGL glue (§4.3) | already written (`selfdrive/ui/onroad/cameraview.py`) | already written (C++) |
 | Upstream drift | diverges from upstream's raylib direction | tracks upstream | dead end (upstream is removing it) |
 
-**Recommendation: Qt Widgets + QSS — but bind it with PySide6, not PyQt5.**
+**Recommendation: Qt Widgets + QSS, bound with PySide2 (not PyQt5).**
 The design being ported *is* Qt Widgets — ~71k LOC across the two repos,
 including 2,191 LOC of QSS theming that has no raylib equivalent. Choosing
 raylib means re-drawing the entire Nagasware design by hand in immediate mode,
@@ -673,7 +673,7 @@ environment this was staged from. First task on a machine with the toolchain.
   justify raylib.
 
 ### P2 — UI shell + state plumbing (2 wk)
-- **PyQt5 → PySide6 conversion pass first** (§12.1), as a mechanical change over
+- **PyQt5 → PySide2 conversion pass first** (§12.1), as a mechanical change over
   the Nagasware tree with no behaviour edits, so it never interleaves with the
   cereal wiring below.
 - `UIState` singleton: one `SubMaster`, one 20 Hz `QTimer`, offroad/onroad
@@ -820,7 +820,7 @@ all three should be scheduled alongside §7.2 for hardware bring-up.
 | Nagasware offroad pages assume its own config layer, not `Params` | medium | rewrite the params layer per §5.5; keep the page/section structure |
 | PyQt5's GPLv3 licence vs openpilot's MIT | **high** | port to PySide6 (LGPLv3) as a mechanical pass in P2, before cereal wiring (§12.1) |
 | EGLFS forbids mixing GL windows with QWidget content; target plugin unknown | **high** | P1 gate — name the plugin and prove `QOpenGLWidget` composites on real 02M (§4.3, §12.2) |
-| No official PySide6 aarch64 wheels | low | distro package pinned before P2 (§12.3) |
+| Binding not packaged for the target | low | resolved — `python3-pyside2` is in jammy for arm64 (§12.3) |
 | VisionPilot UI's `.x_m()`/`.y_m()` defect class (9 sites) | medium | don't port those paths — take Nagasware's equivalents (§5.4, §5.6); grep the tree before reusing any VisionPilot interaction code |
 | Gesture can pull the driving view off-screen at speed | medium | port both safety interlocks in §5.6 and test them explicitly |
 | RGA wrapper is gated on `is_rk3588()` | low | one-line predicate change to RK3576 + hardware verification (§4.3) |
@@ -969,11 +969,37 @@ accepts the short form); `QAction` moves from `QtWidgets` to `QtGui`;
 abstraction layer over PyQt5/PyQt6/PySide2/PySide6 that lets the port proceed
 binding-agnostically, and PyQt5-shim layers that re-route calls to PySide6.
 
-**Recommendation**: port to **PySide6** directly. Do the binding conversion in
-P2 as a mechanical pass over the Nagasware tree *before* wiring cereal, so the
-two changes never interleave. If the conversion proves worse than expected,
-PySide2 (Qt5, also LGPL) is the smaller step — but it inherits the Qt5 EOL
-problem, so treat it as a fallback, not a destination.
+**Corrected 2026-09-10, once the target OS was pinned: use PySide2, not
+PySide6.** The runtime is **Ubuntu 22.04 on RK3576**, and that decides it:
+
+- `python3-pyside2` **5.15.2 is in jammy universe, built for arm64** —
+  `apt install`, done. PySide6 is not in jammy at all, and has no official
+  aarch64 wheels (§12.3), so it means building Shiboken and PySide from source
+  on the device or in a cross-toolchain. Hours of build, and a maintenance
+  burden every time it needs rebuilding.
+- **PySide2 is LGPLv3 too.** The entire licence argument against PyQt5 is
+  preserved; only the Qt major version changes.
+- **Qt 5.15 is already on the device**, running the current C++ UI. Its EOL
+  status is therefore *not new exposure* — it is the status quo. Choosing Qt6
+  would put a second Qt major version on the image or force a platform-wide
+  migration, neither of which this port should be carrying.
+- **The conversion gets much cheaper.** PyQt5 → PySide2 is
+  `pyqtSignal`→`Signal`, `pyqtSlot`→`Slot`, keep `exec_()`, drop `QVariant`/
+  `QString`. None of Qt6's scoped enums, `QAction` relocation or
+  `QRegExp`→`QRegularExpression`. Across Nagasware's 48,545 LOC that
+  difference is substantial.
+
+The Qt5 EOL point still stands as a *platform* question — when the image moves
+to Qt6, this UI moves with it — but that is a BSP decision, not a UI one, and
+it should be made once for the whole device rather than forced by the UI port.
+
+**Implementation note**: `selfdrive/ui/eop/qt.py` resolves PySide2 first and
+falls back to PySide6, so the same tree runs on a 24.04 dev box and a 22.04
+target. It normalises only what this UI touches — `QOpenGLWidget`'s move from
+`QtWidgets` to `QtOpenGLWidgets`, and `exec_()` vs `exec()`. Everything else is
+written to the intersection deliberately: unscoped enum access is native in
+PySide2 and accepted by PySide6's forgiveness mode, and `Signal`/`Slot` are
+spelled the same in both.
 
 **Also check** whether any Nagasware component was written against a
 GPL-incompatible or PyQt-specific API (`sip`, `PyQt5.QtChart`) before assuming
@@ -998,15 +1024,13 @@ device now runs with no compositor at all. If EOP's BSP follows, Qt on 02M
 means EGLFS, not X11 — which is exactly the configuration with the constraint
 above.
 
-### 12.3 PySide6 has no official aarch64 PyPI wheels
+### 12.3 Neither binding has official aarch64 PyPI wheels — use the distro
 
-`pip install PySide6` does not resolve on arm64 Linux from official wheels;
-distributions ship it instead (Arch Linux ARM has `pyside6`/`shiboken6`;
-Debian/Ubuntu ship `python3-pyside6`), or you cross-compile from source, which
-is slow. Since the ExoPilot BSP is a Rockchip Debian/Ubuntu derivative, the
-likely answer is the distro package plus a pinned version — but this belongs in
-P0's environment work, not discovered at deploy time. Note this is a build and
-packaging cost, not a blocker, and PyQt5 has a comparable story on aarch64.
+`pip install PySide6` does not resolve on arm64 Linux from official wheels.
+With the target pinned to Ubuntu 22.04 this stops being a research question:
+`python3-pyside2` 5.15.2 is in jammy universe for arm64, so the answer is the
+distro package, pinned. `python3-pyside6` does not exist in jammy — it arrives
+in 24.04 — which is the practical half of why §12.1 now lands on PySide2.
 
 ### 12.4 The counter-argument, recorded
 
@@ -1054,12 +1078,13 @@ directly.
 2. Run the P1 camera spike — including naming the Qt platform plugin (§12.2).
    This is the one finding that could still send the toolkit choice back to
    raylib, so it comes before any design work.
-3. Schedule the PySide6 conversion pass at the head of P2 (§12.1).
+3. Schedule the PyQt5 → PySide2 conversion pass at the head of P2 (§12.1).
 4. Decide §7.1 — corner-radar ownership. Still open, still needs an owner.
 
 Settled: 02M/RK3576 only at 1600×600 (§0); `dev/02M` as a branch of openpilot
-alongside `dev/01M`, no submodule (§1); Qt Widgets + QSS bound with **PySide6**
-rather than PyQt5 (§4.1, §12.1); Nagasware as the primary UI source, code and
+alongside `dev/01M`, no submodule (§1); Qt Widgets + QSS bound with
+**PySide2** on Ubuntu 22.04 / arm64 — LGPL like PySide6, but actually
+packaged for the target (§4.1, §12.1); Nagasware as the primary UI source, code and
 design, for both onroad and offroad (§5.4–§5.7); telemetry removal scoped to
 the 02M panel only (§11.5).
 
