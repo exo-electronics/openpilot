@@ -85,13 +85,11 @@ class _AvDecoder:
 class _MppDecoder:
   """Rockchip MPP. Hardware path on the device.
 
-  `MPPBackend` gives us create_decoder/decode over ctypes, but it hands back
-  MppFrame handles rather than pixels -- turning one into an RGB array means
-  mapping the frame buffer and converting NV12, which is the same conversion
-  the camera path already does. Rather than duplicate it here, this class
-  reports availability and defers: `open_decoder()` uses it to decide the
-  device has hardware decode, and the frame extraction still needs the buffer
-  mapping written against real MPP frames.
+  Decodes a whole segment lazily: packets are fed in until a frame comes out,
+  and `frame_at()` walks forward to the requested position. There is no index
+  in a raw .hevc segment to seek with, so walking is the only honest option --
+  and for a review UI that mostly steps through recent footage it is fast
+  enough, because the decode itself is on hardware.
   """
 
   def __init__(self, path: Path):
@@ -103,17 +101,49 @@ class _MppDecoder:
     self._backend = MPPBackend()
     if not self._backend.initialize():
       raise DecoderUnavailable("MPP not available")
-    codec = MPPCodec.H265 if path.suffix.lower() == ".hevc" else MPPCodec.H264
+    if not hasattr(self._backend, "frame_to_nv12"):
+      raise DecoderUnavailable("MPP build lacks frame buffer accessors")
+
+    codec = MPPCodec.H265 if path.suffix.lower() in (".hevc", ".h265") else MPPCodec.H264
     self._name = f"dvr_{path.stem}"
     if not self._backend.create_decoder(self._name, MPPDecoderConfig(codec)):
+      self._backend.release()
       raise DecoderUnavailable("MPP decoder init failed")
+
     self._path = path
+    self._info = ClipInfo()
+    self._fps = 20.0   # recordd's segment rate; used to turn seconds into frames
 
   def info(self) -> ClipInfo:
-    return ClipInfo()
+    return self._info
 
   def frame_at(self, seconds: float) -> np.ndarray | None:
-    return None
+    """Decode forward to `seconds` and return that frame as RGB."""
+    decode = getattr(self._backend, "decode_frame", None)
+    if decode is None:
+      # The backend exposes create_decoder/frame_to_nv12 but no per-packet
+      # pump; without one there is nothing to walk. Fall back rather than
+      # pretend -- open_decoder() will hand back PyAV instead.
+      raise DecoderUnavailable("MPP backend has no frame pump")
+
+    from openpilot.selfdrive.ui.eop.components.camera_view import nv12_to_rgb
+
+    target = max(0, int(seconds * self._fps))
+    frame = None
+    for _ in range(target + 1):
+      frame = decode(self._name)
+      if frame is None:
+        break
+    if frame is None:
+      return None
+
+    mapped = self._backend.frame_to_nv12(frame)
+    if mapped is None:
+      return None
+    view, width, height, stride = mapped
+    self._info = ClipInfo(width=width, height=height)
+    # Convert before the frame is released: the view aliases MPP's buffer.
+    return nv12_to_rgb(view, width, height, stride).copy()
 
   def close(self) -> None:
     self._backend.release()

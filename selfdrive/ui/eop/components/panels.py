@@ -165,6 +165,23 @@ class PanelRegistry:
 REGISTRY = PanelRegistry()
 
 
+def register_builtin_panels() -> PanelRegistry:
+  """Populate REGISTRY with the shipped panels.
+
+  Importing `panel_widgets` is what runs its @panel decorators, so leaving
+  that to chance means an empty registry and panel slots that silently
+  resolve to None -- which reads as "the panels just don't show" rather than
+  as an error. Idempotent, and callable from anywhere that needs the registry
+  populated without constructing a PanelHost.
+
+  The import is deferred rather than at module scope because panel_widgets
+  imports SidePanel from here, and at import time that class does not exist
+  yet.
+  """
+  from openpilot.selfdrive.ui.eop.components import panel_widgets  # noqa: F401
+  return REGISTRY
+
+
 def panel(key: str):
   def deco(cls):
     REGISTRY.register(key, cls)
@@ -180,6 +197,7 @@ class PanelHost(QWidget):
 
   def __init__(self, parent=None, width_frac: float = 0.31):
     super().__init__(parent)
+    register_builtin_panels()
     self._frac = width_frac
     self.left_key = self.LEFT_KEY_DEFAULT
     self.right_key = self.RIGHT_KEY_DEFAULT

@@ -154,7 +154,14 @@ class BorderOverlay(QWidget):
   @classmethod
   def _stop_timer(cls) -> None:
     if cls._timer is not None:
-      cls._timer.stop()
+      try:
+        cls._timer.stop()
+      except RuntimeError:
+        # The C++ QTimer can already be gone -- on application teardown Qt
+        # destroys it while this class attribute still holds the Python
+        # wrapper. Calling stop() then raises rather than returning, so a
+        # tidy shutdown would end in a traceback.
+        pass
       cls._timer = None
       cls._blink_on = True
 
