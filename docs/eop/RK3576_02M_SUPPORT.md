@@ -1,5 +1,16 @@
 # RK3576 / ExoPilot 02M support
 
+> **Status change, 2026-09-10** — 02M is moving to VisionPilot's `dev/02M`
+> line, which runs this backend without ROS 2 behind a new UI. The **02M UI
+> has already been removed from this branch** (telemetry side panel, its width
+> param, the split `MainWindow` layout) — see `docs/eop/BRANCH_NAMING.md`.
+> Everything else below is still in-tree and still works: the RK3576 platform
+> layer, camera config, NPU topology and `Hardware::RK3576()` all remain, and
+> move only once the VisionPilot port runs on real 02M hardware. Read the
+> sections below as accurate *except* for anything describing on-screen 02M
+> behaviour.
+
+
 **Status, 2026-08-26**: platform registration and NPU-topology plumbing
 landed (Phase A below). Camera capture on 02M does **not** work yet — no
 MIPI driver code exists for its 5-camera array (Phase B). Nothing here has

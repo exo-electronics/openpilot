@@ -10,13 +10,10 @@
  * Top-down view of vehicle and surrounding objects.
  * Uses modelV2 lane lines, road edges, and radarState leads.
  *
- * Reused at two sizes: a small corner overlay in AnnotatedCameraWidget, and
- * full panel size as TelemetryPanel's default page. Takes no opinion on its
- * own size (callers size it, e.g. via setFixedSize()) or visibility --
- * isShowing() reports whether there's anything meaningful to show, and each
- * caller decides what to do with that (AnnotatedCameraWidget hides itself;
- * TelemetryPanel's page-switching already owns visibility, so it just draws
- * an empty grid when this is false).
+ * Takes no opinion on its own size (callers size it, e.g. via
+ * setFixedSize()) or visibility -- isShowing() reports whether there's
+ * anything meaningful to show, and the caller decides what to do with that
+ * (AnnotatedCameraWidget hides its corner overlay entirely).
  */
 class BEVWidget : public QWidget {
   Q_OBJECT

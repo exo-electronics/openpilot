@@ -5,10 +5,9 @@
 
 BEVWidget::BEVWidget(QWidget *parent) : QWidget(parent) {
   // No default size or mouse-transparency here -- both are presentation
-  // choices specific to how each caller places this widget (a small
-  // click-through corner overlay vs. a full telemetry-panel page that
-  // needs mouse events for swipe gestures), not something this widget
-  // should assume. See callers: AnnotatedCameraWidget, TelemetryPanel.
+  // choices specific to how a caller places this widget (e.g. a small
+  // click-through corner overlay), not something this widget should
+  // assume. See caller: AnnotatedCameraWidget.
 }
 
 void BEVWidget::updateState(const UIState &s) {
@@ -142,8 +141,8 @@ void BEVWidget::paintEvent(QPaintEvent *event) {
   // whenever !data_valid, which masked that the point/lead arrays below are
   // never cleared on the invalid path (they just hold their last values);
   // now that a caller can keep it visible while disabled/invalid (e.g.
-  // TelemetryPanel, mid-swipe or with EOPBEVWidgetEnabled off), that would
-  // otherwise paint stale lane lines/leads instead of an empty grid.
+  // with EOPBEVWidgetEnabled off), that would otherwise paint stale lane
+  // lines/leads instead of an empty grid.
   if (data_valid) {
     drawRoadEdges(p);
     drawLaneLines(p);

@@ -21,29 +21,44 @@ AnnotatedCameraWidget::AnnotatedCameraWidget(VisionStreamType type, QWidget *par
   experimental_btn = new ExperimentalButton(this);
   main_layout->addWidget(experimental_btn, 0, Qt::AlignTop | Qt::AlignRight);
   
-  // BEV Widget (Bird's Eye View) -- only as a small corner overlay when
-  // there's no dedicated wide-screen TelemetryPanel to show it at full size
-  // instead (ExoPilot 02M). Avoids showing the same top-down view twice.
-  if (getTelemetryPanelWidth() == 0) {
-    bev_widget = new BEVWidget(this);
-    bev_widget->setParent(this);
-    // This corner-overlay placement is this call site's own choice -- size,
-    // position, and click-through are specific to floating over the camera
-    // view, not something BEVWidget assumes for its other (full telemetry-
-    // panel page) use.
-    bev_widget->setFixedSize(130, 180);
-    bev_widget->setAttribute(Qt::WA_TransparentForMouseEvents);
-    bev_widget->move(width() - 145, height() - 200);
-  }
+  // BEV Widget (Bird's Eye View) -- a small corner overlay floating over the
+  // camera view.
+  bev_widget = new BEVWidget(this);
+  bev_widget->setParent(this);
+  // This corner-overlay placement is this call site's own choice -- size,
+  // position, and click-through are specific to floating over the camera
+  // view, not something BEVWidget assumes.
+  bev_widget->setFixedSize(130, 180);
+  bev_widget->setAttribute(Qt::WA_TransparentForMouseEvents);
+  // Position is set in resizeEvent(), not here: this widget has not been
+  // laid out yet at construction time, so width()/height() are still Qt's
+  // defaults rather than the real 1024x600 panel, and the overlay would be
+  // placed against those instead. It is not in main_layout (it floats over
+  // the camera rather than taking space in it), so nothing else would move
+  // it either.
+  positionBevWidget();
+}
+
+void AnnotatedCameraWidget::positionBevWidget() {
+  if (!bev_widget) return;
+  // Bottom-right, inset by the border main_layout reserves (UI_BORDER_SIZE)
+  // so the overlay sits inside the alert border ring rather than under it.
+  bev_widget->move(width() - bev_widget->width() - UI_BORDER_SIZE,
+                   height() - bev_widget->height() - UI_BORDER_SIZE);
+}
+
+void AnnotatedCameraWidget::resizeEvent(QResizeEvent *event) {
+  CameraWidget::resizeEvent(event);
+  positionBevWidget();
 }
 
 void AnnotatedCameraWidget::updateState(const UIState &s) {
   // update engageability/experimental mode button
   experimental_btn->updateState(s);
-  // Update BEV widget -- visibility is this call site's decision now (see
+  // Update BEV widget -- visibility is this call site's decision (see
   // BEVWidget::isShowing()): hide the corner overlay entirely when there's
   // nothing valid to show, rather than drawing an empty grid over the
-  // camera feed the way TelemetryPanel's dedicated page does.
+  // camera feed.
   if (bev_widget) {
     bev_widget->updateState(s);
     bev_widget->setVisible(bev_widget->isShowing());

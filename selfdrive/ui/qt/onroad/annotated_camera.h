@@ -20,10 +20,10 @@ private:
   ExperimentalButton *experimental_btn;
   HudRenderer hud;
   ModelRenderer model;
-  // Small corner overlay -- only constructed when there's no dedicated
-  // TelemetryPanel to hold a full-size BEVWidget instead (ExoPilot 01M/PC).
-  // See getTelemetryPanelWidth() in qt_window.h.
+  // Small corner overlay floating over the camera view. Not in main_layout
+  // -- positioned manually by positionBevWidget() on every resize.
   BEVWidget *bev_widget = nullptr;
+  void positionBevWidget();
   std::unique_ptr<PubMaster> pm;
 
   int skip_frame_count = 0;
@@ -33,6 +33,7 @@ protected:
   void paintGL() override;
   void initializeGL() override;
   void showEvent(QShowEvent *event) override;
+  void resizeEvent(QResizeEvent *event) override;
   mat4 calcFrameMatrix() override;
 
   double prev_draw_t = 0;
