@@ -1,0 +1,6 @@
+/* Onroad-only chrome. The camera fills the view, so everything here is an
+   overlay and must stay legible against arbitrary video. */
+
+QLabel#speed      { font-size: 96px; font-weight: 700; color: #ffffff; }
+QLabel#speedUnit  { font-size: 22px; color: #b3c0c0; }
+QLabel#alertText  { font-size: 34px; color: #ffffff; }

@@ -67,12 +67,13 @@ QTimer = QtCore.QTimer
 QColor = QtGui.QColor
 QPainter = QtGui.QPainter
 QLinearGradient = QtGui.QLinearGradient
+QObject = QtCore.QObject
 QWidget = QtWidgets.QWidget
 QApplication = QtWidgets.QApplication
 
 __all__ = [
   "BINDING", "QtCore", "QtGui", "QtWidgets", "Qt", "Signal", "Slot", "QTimer",
-  "QColor", "QPainter", "QLinearGradient", "QWidget", "QApplication",
+  "QColor", "QPainter", "QLinearGradient", "QObject", "QWidget", "QApplication",
   "QOpenGLWidget", "run_app",
 ]
 
