@@ -1,19 +1,22 @@
 #!/usr/bin/env bash
-# openpilot launcher for RK3588 (ExoPilot 01M)
+# openpilot launcher for RK3576 (ExoPilot 02M) -- the dev/02M branch.
 # Usage: ./launch_openpilot.sh [mode]
 #   mode: full (default) | model | controls | camera
 #
-# WARNING: This script is for RK3588 hardware only. It will fail on PC/x86_64.
+# WARNING: This script is for RK3576 hardware only. It will fail on PC/x86_64.
+# The sibling dev/01M branch is the RK3588 (ExoPilot 01M) line.
 
 set -e
 
 # --- Hardware check & platform detection ---
-if ! grep -q "rk3588" /proc/device-tree/compatible 2>/dev/null; then
-  echo "[openpilot] ERROR: RK3588 hardware not detected."
-  echo "[openpilot] This launcher is for ExoPilot 01M (RK3588) only."
+if [ "${EOP_PLATFORM:-}" != "rk3576" ] && ! grep -q "rk3576" /proc/device-tree/compatible 2>/dev/null; then
+  echo "[openpilot] ERROR: RK3576 hardware not detected."
+  echo "[openpilot] This launcher is for ExoPilot 02M (RK3576) only."
+  echo "[openpilot] The dev/01M branch is the ExoPilot 01M (RK3588) line."
+  echo "[openpilot] Set EOP_PLATFORM=rk3576 to override on a dev PC."
   exit 1
 fi
-PLATFORM="rk3588"
+PLATFORM="rk3576"
 
 # Source platform-specific environment if present
 if [ -f /etc/profile.d/99-rockchip-${PLATFORM}-env.sh ]; then
@@ -37,7 +40,7 @@ export PYTHONPATH="${SCRIPT_DIR}:${SCRIPT_DIR}/tinygrad_repo:${PYTHONPATH}"
 
 MODE="${1:-full}"
 
-echo "[openpilot] Platform: ExoPilot 01M (RK3588)"
+echo "[openpilot] Platform: ExoPilot 02M (RK3576)"
 
 # --- Camera module loading ---
 echo "[openpilot] Loading camera modules..."
