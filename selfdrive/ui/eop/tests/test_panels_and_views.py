@@ -16,7 +16,7 @@ from openpilot.selfdrive.ui.eop.components.panels import (
   PanelHost,
   register_builtin_panels,
 )
-from openpilot.selfdrive.ui.eop.qt import Qt, QtCore, QtGui, QApplication, QWidget
+from openpilot.selfdrive.ui.eop.qt import Qt, QtCore, QtGui, QtWidgets, QApplication, QWidget
 from openpilot.selfdrive.ui.eop.settings.descriptor import Control, Kind
 from openpilot.selfdrive.ui.eop.views.dvr import DvrView, scan_segments
 from openpilot.selfdrive.ui.eop.views.navigation import (
@@ -137,6 +137,7 @@ class TestControls:
     c = Control("EOPN", Kind.SPINBOX, "N", min=0, max=100, step=5, unit="km/h")
     row = ControlRow(c, ParamStore(p))
     row.widget.setValue(40)
+    row._flush()                       # writes are debounced, see below
     assert float(p.d["EOPN"]) == 40
 
   def test_float_spinbox_keeps_decimals(self, app):
@@ -144,7 +145,61 @@ class TestControls:
     c = Control("EOPF", Kind.SPINBOX, "F", min=0.5, max=5.0, step=0.1)
     row = ControlRow(c, ParamStore(p))
     row.widget.setValue(1.5)
+    row._flush()
     assert abs(float(p.d["EOPF"]) - 1.5) < 1e-6
+
+  def test_spinbox_writes_are_debounced(self, app):
+    # Params writes fsync. Stepping through a range must not fsync per step.
+    p = FakeParams()
+    c = Control("EOPN", Kind.SPINBOX, "N", min=0, max=100, step=5)
+    row = ControlRow(c, ParamStore(p))
+    for v in range(0, 50, 5):
+      row.widget.setValue(v)
+    assert "EOPN" not in p.d           # nothing written yet
+    row._flush()
+    assert float(p.d["EOPN"]) == 45    # only the final value
+
+  def test_pending_edit_is_flushed_on_page_change(self, app):
+    # Leaving a page mid-debounce must not lose the edit. Navigation here is
+    # a QStackedWidget page switch, not an explicit hide() on the control --
+    # Qt only delivers QHideEvent to a widget that was actually visible, so a
+    # row that was never shown would pass a hide() test for the wrong reason.
+    p = FakeParams()
+    c = Control("EOPN", Kind.SPINBOX, "N", min=0, max=100, step=5)
+    row = ControlRow(c, ParamStore(p))
+
+    stack = QtWidgets.QStackedWidget()
+    page = QWidget()
+    QtWidgets.QVBoxLayout(page).addWidget(row)
+    stack.addWidget(page)
+    stack.addWidget(QWidget())
+    stack.show()
+    QApplication.processEvents()
+    self._keep = stack
+
+    row.widget.setValue(25)
+    assert "EOPN" not in p.d           # still inside the debounce window
+    stack.setCurrentIndex(1)           # user navigates away
+    QApplication.processEvents()
+    assert float(p.d["EOPN"]) == 25
+
+  def test_refresh_picks_up_external_change(self, app):
+    # The bug this guards: a control read its param once at construction, so
+    # anything changing it elsewhere left a stale widget until UI restart.
+    p = FakeParams({"EOPX": False})
+    row = ControlRow(Control("EOPX", Kind.TOGGLE, "X"), ParamStore(p))
+    assert not row.widget.isChecked()
+    p.d["EOPX"] = True                 # changed by a daemon, another page, adb
+    row.refresh()
+    assert row.widget.isChecked()
+
+  def test_refresh_does_not_rewrite(self, app):
+    p = FakeParams({"EOPX": True})
+    row = ControlRow(Control("EOPX", Kind.TOGGLE, "X"), ParamStore(p))
+    seen = []
+    row.changed.connect(lambda *a: seen.append(a))
+    row.refresh()
+    assert seen == []                  # refresh must not echo back as an edit
 
   def test_buttons_store_index(self, app):
     p = FakeParams()

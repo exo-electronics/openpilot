@@ -38,13 +38,41 @@ class Segment:
 
 
 def scan_segments(root: Path = SEGMENT_ROOT, limit: int = 200) -> list[Segment]:
-  """Newest first. Tolerates a missing or unreadable root -- an empty list is
-  a correct answer for a device that has not recorded anything yet."""
+  """Newest first, bounded.
+
+  recordd lays segments out as dated directories, so this walks the newest
+  directories first and stops once it has enough -- rather than rglob'ing the
+  whole tree and sorting at the end. On a device with months of footage that
+  difference is the whole stall: the old form stat'ed every file on disk
+  before returning 200 of them, on the UI thread.
+
+  A missing or unreadable root is an empty list, not an error. A device that
+  has not recorded anything yet is not a failure.
+  """
   if not root.exists():
     return []
-  found: list[Segment] = []
+
   try:
-    for path in root.rglob("*"):
+    dirs = sorted(
+      (d for d in root.iterdir() if d.is_dir()),
+      key=lambda d: d.stat().st_mtime,
+      reverse=True,
+    )
+  except OSError:
+    return []
+
+  # Include the root itself, for flat layouts and dev machines.
+  found: list[Segment] = []
+  for directory in [root, *dirs]:
+    if len(found) >= limit:
+      break
+    try:
+      entries = sorted(directory.iterdir(), key=lambda p: p.name)
+    except OSError:
+      continue
+    for path in entries:
+      if len(found) >= limit:
+        break
       if path.suffix.lower() not in VIDEO_SUFFIXES or not path.is_file():
         continue
       try:
@@ -57,10 +85,7 @@ def scan_segments(root: Path = SEGMENT_ROOT, limit: int = 200) -> list[Segment]:
         size_mb=stat.st_size / (1024 * 1024),
         camera=path.stem.replace("_", " "),
       ))
-      if len(found) >= limit * 4:
-        break
-  except OSError:
-    return found
+
   found.sort(key=lambda s: s.started, reverse=True)
   return found[:limit]
 

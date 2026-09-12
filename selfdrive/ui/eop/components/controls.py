@@ -14,11 +14,18 @@ from __future__ import annotations
 
 from openpilot.selfdrive.ui.eop.qt import (
   Qt,
+  QTimer,
   QtWidgets,
-  Signal,
   QWidget,
+  Signal,
 )
 from openpilot.selfdrive.ui.eop.settings.descriptor import Control, Kind
+
+# Params writes go through a temp file plus fsync_dir (common/params.cc), so
+# every one is a synchronous disk sync. A spin box wired straight to
+# valueChanged would fsync on every step -- holding an arrow across a 0..160
+# range in steps of 5 is 32 syncs. Coalesce instead.
+WRITE_DEBOUNCE_MS = 400
 
 
 class ParamStore:
@@ -75,6 +82,12 @@ class ControlRow(QWidget):
       text.addWidget(desc)
     row.addLayout(text, 1)
 
+    self._pending: float | None = None
+    self._write_timer = QTimer(self)
+    self._write_timer.setSingleShot(True)
+    self._write_timer.setInterval(WRITE_DEBOUNCE_MS)
+    self._write_timer.timeout.connect(self._flush)
+
     self.widget = self._build()
     row.addWidget(self.widget, 0, Qt.AlignRight | Qt.AlignVCenter)
 
@@ -126,8 +139,45 @@ class ControlRow(QWidget):
     self.changed.emit(self.control.key, checked)
 
   def _on_number(self, value) -> None:
-    self._store.put_number(self.control.key, value)
+    self._pending = value
+    self._write_timer.start()          # restarts on each step
     self.changed.emit(self.control.key, value)
+
+  def _flush(self) -> None:
+    if self._pending is not None:
+      self._store.put_number(self.control.key, self._pending)
+      self._pending = None
+
+  def refresh(self) -> None:
+    """Re-read the param and update the widget without re-emitting.
+
+    Controls used to read their value once, at construction, so anything that
+    changed a param elsewhere -- another page, a daemon, adb param_set -- left
+    the control showing a stale value until the UI restarted. That is the same
+    failure openpilot's own audit found in ParamSpinBoxControl::refresh().
+    """
+    c = self.control
+    w = self.widget
+    w.blockSignals(True)
+    try:
+      if c.kind is Kind.TOGGLE:
+        w.setChecked(self._store.get_bool(c.key))
+      elif c.kind is Kind.SPINBOX:
+        integral = float(c.step).is_integer() and float(c.min).is_integer()
+        cast = int if integral else float
+        w.setValue(cast(self._store.get_number(c.key, c.min)))
+      else:
+        current = int(self._store.get_number(c.key, 0))
+        for i, b in enumerate(self._buttons):
+          b.setChecked(i == current)
+    finally:
+      w.blockSignals(False)
+
+  def hideEvent(self, event):
+    # Leaving a page must not lose an edit that is still inside the debounce.
+    super().hideEvent(event)
+    self._write_timer.stop()
+    self._flush()
 
   def _on_button(self, index: int) -> None:
     for i, b in enumerate(self._buttons):

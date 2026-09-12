@@ -56,6 +56,13 @@ class SettingsPage(QtWidgets.QScrollArea):
     lay.addStretch(1)
     self.setWidget(body)
 
+  def showEvent(self, event):
+    # Re-read on every entry rather than trusting construction-time values:
+    # another page, a daemon, or adb may have moved the param since.
+    super().showEvent(event)
+    for row in self.rows:
+      row.refresh()
+
 
 class OffroadView(QWidget):
   """Top tab bar plus the page stack."""
@@ -72,6 +79,7 @@ class OffroadView(QWidget):
     self.tabs = QtWidgets.QTabWidget()
     self.tabs.setObjectName("settingsTabs")
     self.tabs.setTabPosition(QtWidgets.QTabWidget.North)
+    self.tabs.currentChanged.connect(self._refresh_current)
     lay.addWidget(self.tabs)
 
     by_name = {p.name: p for p in PAGES}
@@ -83,6 +91,12 @@ class OffroadView(QWidget):
       widget = SettingsPage(page, self._store)
       self.pages[page.name] = widget
       self.tabs.addTab(widget, PAGE_TITLES.get(page.name, page.name.title()))
+
+  def _refresh_current(self, index: int) -> None:
+    page = self.tabs.widget(index)
+    if page is not None:
+      for row in page.rows:
+        row.refresh()
 
   def page_names(self) -> list[str]:
     return [self.tabs.tabText(i) for i in range(self.tabs.count())]

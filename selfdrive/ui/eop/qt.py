@@ -45,14 +45,19 @@ for _name in _ORDER:
     if _name == "pyqt5":
       from PyQt5 import QtCore, QtGui, QtWidgets  # type: ignore
       from PyQt5.QtWidgets import QOpenGLWidget  # type: ignore
-      QtCore.Signal = QtCore.pyqtSignal  # type: ignore[attr-defined]
-      QtCore.Slot = QtCore.pyqtSlot  # type: ignore[attr-defined]
+      # Aliased locally, not written back into QtCore. Assigning
+      # QtCore.Signal = QtCore.pyqtSignal would change PyQt5's namespace for
+      # every module in the process, not just this UI -- a side effect on a
+      # third-party package that nothing here needs.
+      _Signal, _Slot = QtCore.pyqtSignal, QtCore.pyqtSlot
     elif _name == "pyside2":
       from PySide2 import QtCore, QtGui, QtWidgets  # type: ignore
       from PySide2.QtWidgets import QOpenGLWidget  # type: ignore
+      _Signal, _Slot = QtCore.Signal, QtCore.Slot
     elif _name == "pyside6":
       from PySide6 import QtCore, QtGui, QtWidgets  # type: ignore
       from PySide6.QtOpenGLWidgets import QOpenGLWidget  # type: ignore
+      _Signal, _Slot = QtCore.Signal, QtCore.Slot
     else:
       raise ImportError(f"unknown binding {_name!r}")
     BINDING = _name
@@ -64,8 +69,8 @@ if not BINDING:
   raise ImportError("no Qt binding available -- tried " + "; ".join(_errors))
 
 Qt = QtCore.Qt
-Signal = QtCore.Signal
-Slot = QtCore.Slot
+Signal = _Signal
+Slot = _Slot
 QTimer = QtCore.QTimer
 QColor = QtGui.QColor
 QPainter = QtGui.QPainter
