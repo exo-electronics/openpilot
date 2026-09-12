@@ -84,6 +84,29 @@ bring-up, not VisionPilot-specific software. Not verified against real
 | `elm327d` | `adaptd` | Renamed 2026-05-30 — never implemented ELM327; is a driving policy daemon |
 | `radar3d.py` (camera+radar fusion) | `radard.py` | Renamed 2026-08-16 — matches upstream openpilot's name. `radar3d.py` is now the long-range UART radar *producer* daemon, not the fusion daemon; see New Features below |
 
+## UI
+
+The C++/Qt UI is gone. `selfdrive/ui/eop/` is a Qt Widgets UI written in
+Python and run as a `PythonProcess`, and `dev/01M` uses the same module.
+
+- **This branch carries the new design**: top-tab settings, swipeable side
+  panels, 1600x600 chrome. `dev/01M` keeps the classic openpilot layout.
+- **The split between the branches is only `views/`.** `qt.py`, `state.py`,
+  `components/` and `views/panels/` are byte-identical on `dev/01M` and
+  `dev/02M`, so a fix to any of them cherry-picks between branches unchanged.
+  Check that before editing one of those files.
+- **Binding**: PyQt5 by default, resolved through `selfdrive/ui/eop/qt.py`.
+  Write `Signal`, never `pyqtSignal`; take `QOpenGLWidget` from the shim.
+  `EOP_QT_BINDING=pyqt5|pyside2|pyside6` forces one, and the tests run under
+  PyQt5 and PySide6 to prove the code stays neutral. PySide2 (LGPL) is the
+  pre-ship target — PyQt5 is GPLv3 and openpilot is MIT.
+- **Run it**: `PYTHONPATH=. python3 -m openpilot.selfdrive.ui.eop.main --demo`
+- **Test it**: `./test.sh` now includes the UI suite, or directly with
+  `QT_QPA_PLATFORM=offscreen python3 -m pytest selfdrive/ui/eop/tests
+  -c selfdrive/ui/eop/tests/pytest.ini --noconftest`
+- **Not yet verified on hardware**: the VisionIPC/EGL camera path and which Qt
+  platform plugin the device runs. See `docs/eop10/EOP10_PORT_PLAN.md` P1.
+
 ## New Features
 
 **Optional USB eGPU camera shadow path (2026-08-23):**
