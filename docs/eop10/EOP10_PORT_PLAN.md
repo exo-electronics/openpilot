@@ -646,17 +646,23 @@ Each phase has an exit gate. Do not start the next phase until the gate passes.
   `tools/systemd/<name>-<platform>.service` lookup resolves correctly on an
   02M device.
 
-Two bugs in the inherited 01M unit were not carried over. Both are worth
-fixing on `dev/01M` too:
+Two bugs in the inherited 01M unit were not carried over here, and have since
+been fixed on `dev/01M` as well:
 
 - The camera wait was an unbounded `until [ -e /dev/video-camera0 ]` loop, so a
-  device whose cameras never enumerated sat in `ExecStartPre` forever with
-  nothing in the journal saying why. Now bounded at 30 s with a message.
-- `LimitAS=3G` / `LimitRSS=2G` cap the whole cgroup. `manager` forks ~45
-  supervised processes, and on an 8GB board their combined RSS legitimately
-  exceeds 2G once `modeld` and the camera daemons are warm — so the cap
-  surfaces as daemons OOM-killed at random under load rather than as an
-  obvious misconfiguration. Dropped here.
+  device whose cameras never enumerated sat in `ExecStartPre` until the start
+  timeout with nothing in the journal saying why. Now bounded at 30 s with a
+  message, letting `Restart=` retry.
+- `LimitAS=3G` / `LimitRSS=2G` dropped. Both are `setrlimit` values applied to
+  the service process and inherited by every daemon `manager` forks, and
+  neither bounds memory the way it reads: `LimitAS` caps *virtual address
+  space*, so the large VisionIPC dmabuf mappings and RKNN VA reservations
+  `camerad` and `modeld` make fail with `ENOMEM` while the board still has
+  free physical RAM; and `RLIMIT_RSS` has not been enforced by Linux since
+  2.4, making `LimitRSS` dead configuration that reads like a working bound.
+  A real bound is `MemoryMax=` on the cgroup, which needs a number measured
+  on hardware — deliberately not guessed. Both units now carry
+  `OOMScoreAdjust=-100` instead.
 
 **Gate**: `manager.py` boots with the stock C++ UI still in place. Not yet
 verified — needs `uv sync` and a `scons` build, and no `scons` existed in the
