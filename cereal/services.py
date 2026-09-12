@@ -231,7 +231,14 @@ def build_header():
   h += "#include <map>\n"
   h += "#include <string>\n"
 
-  h += "struct service { std::string name; bool should_log; int frequency; int decimation; };\n"
+  # `float frequency`, not `int`. Four services are slower than 1 Hz --
+  # thumbnail at 0.0167, carParams at 0.02, clocks at 0.1, procLog at 0.5 --
+  # and the generator writes the Python float straight into the initialiser,
+  # so an int field is both a C++11 narrowing error (clang rejects the build
+  # outright) and, if it were cast instead, a truncation to 0. socketmaster
+  # computes its liveness window as 10.0 / frequency, so a 0 there is a
+  # division by zero that marks those services alive forever.
+  h += "struct service { std::string name; bool should_log; float frequency; int decimation; };\n"
   h += "static std::map<std::string, service> services = {\n"
   for k, v in SERVICE_LIST.items():
     should_log = "true" if v.should_log else "false"

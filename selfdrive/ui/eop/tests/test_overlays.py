@@ -217,3 +217,98 @@ class TestWarnings:
     ov.set_active([])                 # goes away
     ov.set_active([AdasWarning.GPS_FAULT])   # and comes back
     assert ov.current() is AdasWarning.GPS_FAULT
+
+
+class TestOverlayCameraWiring:
+  """The side and rear overlays are real VisionIPC views, not placeholders.
+
+  A fake view is injected so the stream/publisher pairing and the polling
+  rule can be asserted without a built msgq or a running uvcd.
+  """
+
+  class FakeView(QWidget):
+    made: list = []
+
+    def __init__(self, stream, publisher, parent):
+      super().__init__(parent)
+      type(self).made.append((stream, publisher))
+      self.polls = 0
+
+    def poll(self):
+      self.polls += 1
+
+  def _stack(self, app):
+    self.FakeView.made = []
+    host = QWidget()
+    host.resize(1024, 600)
+    stack = CameraOverlayStack(host, view_factory=self.FakeView)
+    stack.resize(1024, 600)
+    host.show()
+    QApplication.processEvents()
+    self._keep = host
+    return stack
+
+  def test_side_and_rear_come_from_uvcd_not_camerad(self, app):
+    # These are ordinary UVC devices, not the ISP pipeline camerad drives.
+    # Pointing them at camerad would connect to a publisher that never
+    # publishes these streams, and the overlay would stay black forever.
+    self._stack(app)
+    assert sorted(self.FakeView.made) == [
+      ("VISION_STREAM_REAR", "uvcd"),
+      ("VISION_STREAM_SIDE_LEFT", "uvcd"),
+      ("VISION_STREAM_SIDE_RIGHT", "uvcd"),
+    ]
+
+  def test_the_view_fills_the_overlay(self, app):
+    stack = self._stack(app)
+    stack.set_snapshot(Snapshot(left_blinker=True))
+    QApplication.processEvents()
+    overlay = stack._overlays[Camera.LEFT]
+    assert overlay.view.size() == overlay.size()
+
+  def test_only_the_visible_overlay_is_polled(self, app):
+    # Three cameras converting frames while two are off screen is two NV12
+    # conversions per tick for nothing.
+    stack = self._stack(app)
+    stack.set_snapshot(Snapshot(left_blinker=True))
+    QApplication.processEvents()
+    assert stack._overlays[Camera.LEFT].view.polls == 1
+    assert stack._overlays[Camera.RIGHT].view.polls == 0
+    assert stack._overlays[Camera.REAR].view.polls == 0
+
+  def test_nothing_is_polled_when_no_camera_is_up(self, app):
+    stack = self._stack(app)
+    stack.set_snapshot(Snapshot())
+    QApplication.processEvents()
+    assert all(o.view.polls == 0 for o in stack._overlays.values())
+
+  def test_the_source_edge_stays_above_the_image(self, app):
+    # The blinking edge says which camera this is. Painted under the camera
+    # view it would be invisible, which is the whole point of it.
+    stack = self._stack(app)
+    stack.set_snapshot(Snapshot(left_blinker=True))
+    QApplication.processEvents()
+    overlay = stack._overlays[Camera.LEFT]
+    children = overlay.children()
+    assert children.index(overlay._edge) > children.index(overlay.view)
+
+
+class TestFrameConversion:
+  def test_bgr_is_byte_swapped_not_reinterpreted(self):
+    # A UVC camera hands over packed BGR. Getting this backwards is not a
+    # crash, it is a picture with the red and blue channels exchanged.
+    import numpy as np
+    from openpilot.selfdrive.ui.eop.components.camera_view import bgr_to_rgb
+    bgr = np.array([[[10, 20, 30], [40, 50, 60]]], dtype=np.uint8)
+    rgb = bgr_to_rgb(bgr.reshape(-1), width=2, height=1, stride=6)
+    assert rgb.tolist() == [[[30, 20, 10], [60, 50, 40]]]
+
+  def test_bgr_stride_padding_is_cropped_not_folded_in(self):
+    import numpy as np
+    from openpilot.selfdrive.ui.eop.components.camera_view import bgr_to_rgb
+    # Two pixels of real data, then four bytes of row padding.
+    row = [10, 20, 30, 40, 50, 60] + [99, 99, 99, 99]
+    buf = np.array(row, dtype=np.uint8)
+    rgb = bgr_to_rgb(buf, width=2, height=1, stride=10)
+    assert rgb.shape == (1, 2, 3)
+    assert 99 not in rgb
