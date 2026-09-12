@@ -43,7 +43,7 @@ _errors: list[str] = []
 for _name in _ORDER:
   try:
     if _name == "pyqt5":
-      from PyQt5 import QtCore, QtGui, QtWidgets  # type: ignore
+      from PyQt5 import QtCore, QtDBus, QtGui, QtWidgets  # type: ignore
       from PyQt5.QtWidgets import QOpenGLWidget  # type: ignore
       # Aliased locally, not written back into QtCore. Assigning
       # QtCore.Signal = QtCore.pyqtSignal would change PyQt5's namespace for
@@ -51,11 +51,11 @@ for _name in _ORDER:
       # third-party package that nothing here needs.
       _Signal, _Slot = QtCore.pyqtSignal, QtCore.pyqtSlot
     elif _name == "pyside2":
-      from PySide2 import QtCore, QtGui, QtWidgets  # type: ignore
+      from PySide2 import QtCore, QtDBus, QtGui, QtWidgets  # type: ignore
       from PySide2.QtWidgets import QOpenGLWidget  # type: ignore
       _Signal, _Slot = QtCore.Signal, QtCore.Slot
     elif _name == "pyside6":
-      from PySide6 import QtCore, QtGui, QtWidgets  # type: ignore
+      from PySide6 import QtCore, QtDBus, QtGui, QtWidgets  # type: ignore
       from PySide6.QtOpenGLWidgets import QOpenGLWidget  # type: ignore
       _Signal, _Slot = QtCore.Signal, QtCore.Slot
     else:
@@ -71,19 +71,61 @@ if not BINDING:
 Qt = QtCore.Qt
 Signal = _Signal
 Slot = _Slot
-QTimer = QtCore.QTimer
-QColor = QtGui.QColor
-QPainter = QtGui.QPainter
-QLinearGradient = QtGui.QLinearGradient
+
+# QtCore
 QObject = QtCore.QObject
-QWidget = QtWidgets.QWidget
+QTimer = QtCore.QTimer
+QPoint = QtCore.QPoint
+QPointF = QtCore.QPointF
+QRect = QtCore.QRect
+QRectF = QtCore.QRectF
+QSize = QtCore.QSize
+
+# QtGui
+QBrush = QtGui.QBrush
+QColor = QtGui.QColor
+QFont = QtGui.QFont
+QFontDatabase = QtGui.QFontDatabase
+QFontMetrics = QtGui.QFontMetrics
+QImage = QtGui.QImage
+QLinearGradient = QtGui.QLinearGradient
+QPainter = QtGui.QPainter
+QPainterPath = QtGui.QPainterPath
+QPen = QtGui.QPen
+QPixmap = QtGui.QPixmap
+QPolygonF = QtGui.QPolygonF
+QRadialGradient = QtGui.QRadialGradient
+
+# QtDBus. The network and Bluetooth panels talk to NetworkManager and BlueZ,
+# the same way the C++ did, and QtDBus rather than dbus-python because it
+# dispatches on the Qt event loop -- a second loop in the UI process is a
+# second thing that can block the frame.
+QDBusInterface = QtDBus.QDBusInterface
+QDBusConnection = QtDBus.QDBusConnection
+QDBusObjectPath = QtDBus.QDBusObjectPath
+QDBusArgument = QtDBus.QDBusArgument
+
+# QtWidgets
 QApplication = QtWidgets.QApplication
+QWidget = QtWidgets.QWidget
 
 __all__ = [
-  "BINDING", "QtCore", "QtGui", "QtWidgets", "Qt", "Signal", "Slot", "QTimer",
-  "QColor", "QPainter", "QLinearGradient", "QObject", "QWidget", "QApplication",
-  "QOpenGLWidget", "run_app",
+  "BINDING", "QtCore", "QtGui", "QtWidgets", "Qt", "Signal", "Slot",
+  "QObject", "QTimer", "QPoint", "QPointF", "QRect", "QRectF", "QSize",
+  "QBrush", "QColor", "QFont", "QFontDatabase", "QFontMetrics", "QImage",
+  "QLinearGradient", "QPainter", "QPainterPath", "QPen", "QPixmap",
+  "QPolygonF", "QRadialGradient",
+  "QApplication", "QWidget", "QOpenGLWidget", "run_app", "text_width",
+  "QtDBus", "QDBusInterface", "QDBusConnection", "QDBusObjectPath",
+  "QDBusArgument",
 ]
+
+
+def text_width(metrics, text: str) -> int:
+  """QFontMetrics.horizontalAdvance(), which is what both Qt5.11+ and Qt6
+  spell it. Wrapped so a future PySide2 on an older Qt5 has one place to fall
+  back to width() rather than a call site per HUD element."""
+  return metrics.horizontalAdvance(text)
 
 
 def run_app(app) -> int:

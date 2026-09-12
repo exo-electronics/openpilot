@@ -116,10 +116,13 @@ class OnboardingView(QtWidgets.QStackedWidget):
 
   finished = Signal()
 
-  def __init__(self, params=None, parent=None):
+  def __init__(self, store=None, parent=None):
     super().__init__(parent)
     self.setObjectName("onboardRoot")
-    self._params = params
+    # A ParamStore, like every other view takes -- not a raw Params. The two
+    # were mixed here, which meant this was the one view that could not be
+    # handed the store the rest of the UI already shares.
+    self._store = store
 
     self.welcome = WelcomePage(self)
     self.terms = TermsPage(self)
@@ -137,26 +140,21 @@ class OnboardingView(QtWidgets.QStackedWidget):
   # ---- persistence ------------------------------------------------------
 
   def _get(self, key: str) -> str:
-    if self._params is None:
-      return ""
-    try:
-      raw = self._params.get(key)
-    except Exception:
-      return ""
-    return raw.decode() if isinstance(raw, bytes) else (raw or "")
+    return self._store.get_text(key) if self._store is not None else ""
 
   def _put(self, key: str, value: str) -> None:
-    if self._params is not None:
-      try:
-        self._params.put(key, value)
-      except Exception:
-        pass
+    if self._store is not None:
+      self._store.put_text(key, value)
 
   def _resume_at(self) -> QWidget:
+    """Where to open. Terms first, then training.
+
+    Training is also where "Review Training Guide" lands, so a device that
+    has already finished onboarding still opens here when it is shown again
+    on purpose rather than on first run.
+    """
     if self._get("HasAcceptedTerms") != TERMS_VERSION:
       return self.welcome
-    if self._get("CompletedTrainingVersion") != TRAINING_VERSION:
-      return self.training
     return self.training
 
   def completed(self) -> bool:

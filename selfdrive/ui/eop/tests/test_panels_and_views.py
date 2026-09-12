@@ -259,12 +259,12 @@ class TestNavigation:
 
 class TestOnboarding:
   def test_incomplete_by_default(self, app):
-    ob = OnboardingView(params=FakeParams())
+    ob = OnboardingView(ParamStore(FakeParams()))
     assert not ob.completed()
 
   def test_terms_then_training_completes(self, app):
     p = FakeParams()
-    ob = OnboardingView(params=p)
+    ob = OnboardingView(ParamStore(p))
     ob.terms.accepted.emit()
     assert p.d["HasAcceptedTerms"] == TERMS_VERSION
     for _ in ob.training.STEPS:
@@ -274,11 +274,11 @@ class TestOnboarding:
 
   def test_resumes_at_training_when_terms_done(self, app):
     p = FakeParams({"HasAcceptedTerms": TERMS_VERSION})
-    ob = OnboardingView(params=p)
+    ob = OnboardingView(ParamStore(p))
     assert ob.currentWidget() is ob.training
 
   def test_declining_returns_to_welcome(self, app):
-    ob = OnboardingView(params=FakeParams())
+    ob = OnboardingView(ParamStore(FakeParams()))
     ob.terms.declined.emit()
     assert ob.currentWidget() is ob.welcome
 
@@ -336,3 +336,74 @@ class TestDvr:
     (tmp_path / "notes.txt").write_text("x")
     (tmp_path / "clip.hevc").write_bytes(b"\0")
     assert [s.path.name for s in scan_segments(tmp_path)] == ["clip.hevc"]
+
+
+class TestOpenpilotPanelTabs:
+  """The Device/WiFi/Bluetooth/Toggles/Software/Developer tabs.
+
+  These were missing from this branch entirely until now. The WiFi one is not
+  cosmetic: with no way to join a network there is no way to update and no
+  way to pair a phone.
+  """
+
+  def _view(self, app):
+    view = OffroadView(ParamStore(FakeParams()))
+    view.resize(1600, 600)
+    view.show()
+    QApplication.processEvents()
+    self._keep = view
+    return view
+
+  def test_every_openpilot_panel_has_a_tab(self, app):
+    names = self._view(app).page_names()
+    for expected in ("Device", "WiFi", "Bluetooth", "Toggles", "Software",
+                     "Developer"):
+      assert expected in names
+
+  def test_tab_labels_are_unique(self, app):
+    # The descriptor has its own "device" page. Two tabs with the same label
+    # is a UI that cannot be navigated, so one of them is "EOP Device".
+    names = self._view(app).page_names()
+    assert len(names) == len(set(names))
+
+  def test_opening_a_panel_does_not_recurse(self, app):
+    # The bug this guards: swapping the placeholder for the real panel calls
+    # removeTab/insertTab, each of which re-emits currentChanged, which comes
+    # straight back into the builder. Leaving the builder registered until
+    # after the swap made that unbounded -- it blew the stack the first time
+    # any openpilot tab was opened.
+    view = self._view(app)
+    names = view.page_names()
+    index = names.index("Toggles")
+    view.tabs.setCurrentIndex(index)
+    QApplication.processEvents()
+    assert index in view._built
+    assert index not in view._lazy
+
+  def test_panels_are_not_built_until_visited(self, app):
+    # Building all six up front would open DBus connections to
+    # NetworkManager and BlueZ before the user asked for either.
+    view = self._view(app)
+    assert view._built == {}
+    assert len(view._lazy) == 6
+
+  def test_tab_order_survives_the_swap(self, app):
+    view = self._view(app)
+    before = view.page_names()
+    for name in ("Device", "WiFi", "Toggles"):
+      view.tabs.setCurrentIndex(before.index(name))
+      QApplication.processEvents()
+    assert view.page_names() == before
+
+  def test_driving_state_reaches_built_panels(self, app):
+    view = self._view(app)
+    index = view.page_names().index("Developer")
+    view.tabs.setCurrentIndex(index)
+    QApplication.processEvents()
+    view.set_driving_state(engaged=True, offroad=False)
+    body = view._built[index].body
+    # Every Developer row changes how the car drives; none may be touched
+    # while it is moving.
+    assert not body.adb.toggle.isEnabled()
+    view.set_driving_state(engaged=False, offroad=True)
+    assert body.adb.toggle.isEnabled()

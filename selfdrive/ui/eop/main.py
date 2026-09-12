@@ -82,7 +82,7 @@ def main(argv: list[str] | None = None) -> int:
   else:
     state = UIState(parent=window)
     state.updated.connect(view.set_snapshot)
-    state.updated.connect(lambda _s: view.poll_camera())
+    state.updated.connect(lambda snap: _on_frame(view, state, snap))
     # Settings are only reachable while parked -- pulling the driving view off
     # screen at speed is a safety defect, not a UX preference (section 5.6).
     if offroad is not None:
@@ -91,6 +91,20 @@ def main(argv: list[str] | None = None) -> int:
     state.start()
 
   return run_app(app)
+
+
+def _on_frame(view, state, snap) -> None:
+  """Per-frame work that needs more than the Snapshot.
+
+  The model geometry is a few thousand floats and only the driving view reads
+  it, so it is fetched here rather than carried in every Snapshot -- and only
+  while onroad.
+  """
+  view.poll_camera()
+  if not snap.started:
+    return
+  width, height = view.camera_size()
+  view.set_model_frame(state.read_model_frame(width, height), snap)
 
 
 if __name__ == "__main__":
